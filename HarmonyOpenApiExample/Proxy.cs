@@ -1,100 +1,58 @@
-﻿using HarmonyLib;
-using Microsoft.OpenApi;
+﻿using Microsoft.OpenApi;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Interfaces;
 using Microsoft.OpenApi.Models;
 using Microsoft.OpenApi.Writers;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 
 namespace HarmonyOpenApiExample
 {
-    class Program
+    public class OpenApiOperationProxy : DispatchProxy
     {
-        static void Main(string[] args)
+        private OpenApiOperation _decorated;
+
+        public static OpenApiOperation Create(OpenApiOperation decorated)
         {
-            var operation = new OpenApiOperation()
-            {
-                RequestBody = new OpenApiRequestBody
-                {
-                    Content = new Dictionary<string, OpenApiMediaType>()
-                    {
-                        ["test"] = new OpenApiMediaType()
-                    },
-                    Required = true,
-                    Extensions = new Dictionary<string, IOpenApiExtension>()
-                    {
-                        ["name"] = new OpenApiString("subscriber")
-                    }
-                }
-            };
-
-            // Use Harmony
-            // UseHarmony(operation);
-
-            // Use DispatchProxy
-            // UseDispatchProxy(operation);
-
-            // Use Custom Class
-            UseCustomClass(operation);
+            object proxy = Create<IOpenApiSerializable, OpenApiOperationProxy>();
+            ((OpenApiOperationProxy)proxy).SetParameters(decorated);
+            return (OpenApiOperation)proxy;
         }
 
-        private static void UseCustomClass(OpenApiOperation operation)
+        private void SetParameters(OpenApiOperation decorated)
         {
-            OpenApiOperation operation2 = new OpenApiOperation2(operation);
-
-            using (var writer = new StringWriter())
-            {
-                operation2.SerializeAsV2(new OpenApiJsonWriter(writer));
-                Console.Write(writer.ToString());
-            }
+            _decorated = decorated;
         }
 
-        private static void UseDispatchProxy(OpenApiOperation operation)
+        protected override object Invoke(MethodInfo targetMethod, object[] args)
         {
-            var decorated = OpenApiOperationProxy.Create(operation);
-            using (var writer = new StringWriter())
-            {
-                decorated.SerializeAsV2(new OpenApiJsonWriter(writer));
-                Console.Write(writer.ToString());
-            }
+            Console.WriteLine("DispatchProxy Invoked");
+            var result = targetMethod.Invoke(_decorated, args);
+            return result;
+        }
+    }
+
+    public class OpenApiOperation2: OpenApiOperation, IOpenApiSerializable
+    {
+        public OpenApiOperation2(OpenApiOperation operation)
+        {
+            Summary = operation.Summary;
+            Description = operation.Description;
+            ExternalDocs = operation.ExternalDocs;
+            OperationId = operation.OperationId;
+            Parameters = operation.Parameters;
+            RequestBody = operation.RequestBody;
+            Responses = operation.Responses;
+            Extensions = operation.Extensions;
+            Servers = operation.Servers;
+            Deprecated = operation.Deprecated;
+            Security = operation.Security;
         }
 
-        private static void UseHarmony(OpenApiOperation operation)
+        public new void SerializeAsV2(IOpenApiWriter writer)
         {
-            var harmony = new Harmony("com.test.patch");
-            var mOriginal = typeof(OpenApiOperation).GetMethod("SerializeAsV2");
-            var mPrefix = AccessTools.Method(typeof(Program), "Prefix");
-            var mTranspiler = AccessTools.Method(typeof(Program), "Transpiler");
-            harmony.Patch(mOriginal, new HarmonyMethod(mPrefix), transpiler: new HarmonyMethod(mTranspiler));
-
-            using (var writer2 = new StringWriter())
-            {
-                operation.SerializeAsV2(new OpenApiJsonWriter(writer2));
-                Console.Write(writer2.ToString());
-            }
-        }
-
-        public static bool Prefix(OpenApiOperation __instance, ref IOpenApiWriter writer)
-        {
-            Console.WriteLine("Invoke Prefix");
-            var Tags = __instance.Tags;
-            var Summary = __instance.Summary;
-            var Description = __instance.Description;
-            var ExternalDocs = __instance.ExternalDocs;
-            var OperationId = __instance.OperationId;
-            var Parameters = __instance.Parameters;
-            var RequestBody = __instance.RequestBody;
-            var Responses = __instance.Responses;
-            var Extensions = __instance.Extensions;
-            var Servers = __instance.Servers;
-            var Deprecated = __instance.Deprecated;
-            var Security = __instance.Security;
-
-
             if (writer == null)
             {
                 throw new ArgumentNullException(nameof(writer));
@@ -165,7 +123,7 @@ namespace HarmonyOpenApiExample
                 else
                 {
                     var content = RequestBody.Content.Values.FirstOrDefault();
-                    var customName = Extensions["name"];
+                    var customName = RequestBody.Extensions["name"];
                     var bodyParameter = new OpenApiParameter
                     {
                         Description = RequestBody.Description,
@@ -235,15 +193,6 @@ namespace HarmonyOpenApiExample
             writer.WriteExtensions(Extensions, OpenApiSpecVersion.OpenApi2_0);
 
             writer.WriteEndObject();
-
-            // Let's do nothing, and not call the original method.
-            return false;
-        }
-
-        public static IEnumerable<CodeInstruction> Transpiler(MethodBase original, IEnumerable<CodeInstruction> instructions)
-        {
-            Console.WriteLine("Invoke Transpiler");
-            return instructions;
         }
     }
 }
